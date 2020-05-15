@@ -89,7 +89,19 @@ func visitClusters(root dag.Vertex) map[string]*v2.Cluster {
 }
 
 func (v *clusterVisitor) visit(vertex dag.Vertex) {
-	if cluster, ok := vertex.(*dag.Cluster); ok {
+	var cluster *dag.Cluster
+
+	switch obj := vertex.(type) {
+	case *dag.Cluster:
+		cluster = obj
+	case *dag.ExtensionService:
+		cluster = &obj.Cluster
+	}
+
+	if cluster != nil {
+		// Note that both types of cluster have to generate
+		// the name the same way because `envoy.Cluster`
+		// internally generates a name using `Clustername()`.
 		name := envoy.Clustername(cluster)
 		if _, ok := v.clusters[name]; !ok {
 			c := envoy.Cluster(cluster)

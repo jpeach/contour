@@ -16,6 +16,7 @@ package dag
 import (
 	"errors"
 	"fmt"
+	"log"
 	"sort"
 	"strconv"
 	"strings"
@@ -26,6 +27,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	projcontour "github.com/projectcontour/contour/apis/projectcontour/v1"
+	projcontourv1alpha1 "github.com/projectcontour/contour/apis/projectcontour/v1alpha1"
 	"github.com/projectcontour/contour/internal/annotation"
 	"github.com/projectcontour/contour/internal/k8s"
 )
@@ -47,6 +49,8 @@ type Builder struct {
 	virtualhosts       map[string]*VirtualHost
 	securevirtualhosts map[string]*SecureVirtualHost
 
+	extensions map[k8s.FullName]*ExtensionService
+
 	orphaned map[k8s.FullName]bool
 
 	FallbackCertificate *k8s.FullName
@@ -57,6 +61,9 @@ type Builder struct {
 // Build builds a new DAG.
 func (b *Builder) Build() *DAG {
 	b.reset()
+
+	// Ingress and HTTPProxy object might depend on support services for their config.
+	b.computeExtensionServices()
 
 	// setup secure vhosts if there is a matching secret
 	// we do this first so that the set of active secure vhosts is stable
@@ -78,6 +85,7 @@ func (b *Builder) reset() {
 
 	b.virtualhosts = make(map[string]*VirtualHost)
 	b.securevirtualhosts = make(map[string]*SecureVirtualHost)
+	b.extensions = make(map[k8s.FullName]*ExtensionService)
 
 	b.statuses = make(map[k8s.FullName]Status, len(b.statuses))
 }
@@ -378,6 +386,11 @@ func (b *Builder) computeHTTPProxy(proxy *projcontour.HTTPProxy) {
 		return
 	}
 
+	if proxy.Spec.VirtualHost.TLS == nil && proxy.Spec.VirtualHost.Authorization != nil {
+		sw.SetInvalid("Spec.VirtualHost.Authorization configured without TLS")
+		return
+	}
+
 	var tlsValid bool
 	if tls := proxy.Spec.VirtualHost.TLS; tls != nil {
 		// tls is valid if passthrough == true XOR secretName != ""
@@ -426,7 +439,40 @@ func (b *Builder) computeHTTPProxy(proxy *projcontour.HTTPProxy) {
 					return
 				}
 
+				if proxy.Spec.VirtualHost.AuthorizationConfigured() {
+					sw.SetInvalid("Spec.Virtualhost.TLS fallback & client authentication are incompatible together")
+					return
+				}
+
 				svhost.FallbackCertificate = sec
+			}
+
+			if proxy.Spec.VirtualHost.AuthorizationConfigured() {
+				auth := proxy.Spec.VirtualHost.Authorization
+
+				if auth.ServiceRef.APIVersion != projcontourv1alpha1.GroupVersion.String() ||
+					auth.ServiceRef.Kind != "ExtensionService" {
+					sw.SetInvalid("Spec.Virtualhost.ClientAuthentication.ExtensionServiceRef specifies an unsupported kind %q and group %q",
+						auth.ServiceRef.Kind, auth.ServiceRef.APIVersion)
+					return
+				}
+
+				// Lookup the support service reference.
+				n := k8s.FullName{
+					Name:      auth.ServiceRef.Name,
+					Namespace: stringOrDefault(auth.ServiceRef.Namespace, proxy.Namespace),
+				}
+
+				if ext, ok := b.extensions[n]; ok {
+					svhost.AuthorizationService = ext
+					svhost.AuthorizationTimeout = annotation.ParseTimeout(auth.Timeout)
+					log.Printf("support service %q found", n)
+				} else {
+					log.Printf("support service %q not found", n)
+					log.Printf("have %+v", b.extensions)
+					sw.SetInvalid("Spec.Virtualhost.ClientAuthentication.ExtensionServiceRef support service %q not found", n)
+					return
+				}
 			}
 
 			// Fill in DownstreamValidation when external client validation is enabled.
@@ -454,7 +500,7 @@ func (b *Builder) computeHTTPProxy(proxy *projcontour.HTTPProxy) {
 		}
 	}
 
-	routes := b.computeRoutes(sw, proxy, nil, nil, tlsValid)
+	routes := b.computeRoutes(sw, &proxy.Spec, proxy, nil, nil, tlsValid)
 	insecure := b.lookupVirtualHost(host)
 	addRoutes(insecure, routes)
 
@@ -463,6 +509,88 @@ func (b *Builder) computeHTTPProxy(proxy *projcontour.HTTPProxy) {
 	if tlsValid && proxy.Spec.TCPProxy == nil {
 		secure := b.lookupSecureVirtualHost(host)
 		addRoutes(secure, routes)
+	}
+}
+
+func (b *Builder) computeExtensionServices() {
+	for _, ext := range b.Source.extensions {
+		// XXX(jpeach) See computeRoutes() ...
+		service := ext.Spec.Service
+
+		if service.Port < 1 || service.Port > 65535 {
+			// sw.SetInvalid("service %q: port must be in the range 1-65535", service.Name)
+			// return nil
+		}
+
+		s, err := b.lookupService(
+			k8s.FullName{Name: service.Name, Namespace: ext.Namespace},
+			intstr.FromInt(service.Port))
+		if err != nil {
+			// sw.SetInvalid("Spec.Routes unresolved service reference: %s", err)
+			log.Printf("unresolved service reference: %s", err)
+			return
+		}
+
+		// Determine the protocol to use to speak to this Cluster.
+		protocol, err := getProtocol(service, s)
+		if err != nil {
+			// sw.SetInvalid(err.Error())
+			// return nil
+		}
+
+		var uv *PeerValidationContext
+		switch protocol {
+		case "h2":
+			// we can only validate TLS connections to services that talk TLS
+			uv, err = b.lookupUpstreamValidation(service.UpstreamValidation, ext.Namespace)
+			if err != nil {
+				// sw.SetInvalid("Service [%s:%d] TLS upstream validation policy error: %s",
+				// 	service.Name, service.Port, err)
+				// return nil
+				log.Printf("Service [%s:%d] TLS upstream validation policy error: %s",
+					service.Name, service.Port, err)
+			}
+		case "h2c":
+		// TODO(jpeach) For a GRPC backend, enforce that the protocol is "h2"
+		default:
+			protocol = "h2"
+			log.Printf("squashing support service protocol to %q", protocol)
+		}
+
+		reqHP, err := headersPolicy(service.RequestHeadersPolicy, true /* allow Host */)
+		if err != nil {
+			// sw.SetInvalid(err.Error())
+			// return nil
+			log.Printf("request headers: %s", err.Error())
+		}
+
+		respHP, err := headersPolicy(service.ResponseHeadersPolicy, false /* disallow Host */)
+		if err != nil {
+			// sw.SetInvalid(err.Error())
+			// return nil
+			log.Printf("response headers: %s", err.Error())
+		}
+
+		if service.Mirror {
+			// No mirroring support for this!
+		}
+
+		log.Printf("adding support service %q on protocol %q", k8s.ToFullName(ext), protocol)
+
+		// XXX(jpeach) What should the name really be here?
+		b.extensions[k8s.ToFullName(ext)] = &ExtensionService{
+			Cluster: Cluster{
+				Upstream:           s,
+				LoadBalancerPolicy: loadBalancerPolicy(ext.Spec.LoadBalancerPolicy),
+				Weight:             uint32(service.Weight),
+				// XXX(jpeach) We actually need a GRPC health check here, but we only have a HTTP and TCP one.
+				UpstreamValidation:    uv,
+				RequestHeadersPolicy:  reqHP,
+				ResponseHeadersPolicy: respHP,
+				Protocol:              protocol,
+				SNI:                   determineSNI(nil, reqHP, s),
+			},
+		}
 	}
 }
 
@@ -585,7 +713,7 @@ func getProtocol(service projcontour.Service, s *Service) (string, error) {
 	return protocol, nil
 }
 
-func (b *Builder) computeRoutes(sw *ObjectStatusWriter, proxy *projcontour.HTTPProxy, conditions []projcontour.Condition, visited []*projcontour.HTTPProxy, enforceTLS bool) []*Route {
+func (b *Builder) computeRoutes(sw *ObjectStatusWriter, rootProxy *projcontour.HTTPProxySpec, proxy *projcontour.HTTPProxy, conditions []projcontour.Condition, visited []*projcontour.HTTPProxy, enforceTLS bool) []*Route {
 	for _, v := range visited {
 		// ensure we are not following an edge that produces a cycle
 		var path []string
@@ -631,7 +759,7 @@ func (b *Builder) computeRoutes(sw *ObjectStatusWriter, proxy *projcontour.HTTPP
 		}
 
 		sw, commit := b.WithObject(delegate)
-		routes = append(routes, b.computeRoutes(sw, delegate, append(conditions, include.Conditions...), visited, enforceTLS)...)
+		routes = append(routes, b.computeRoutes(sw, rootProxy, delegate, append(conditions, include.Conditions...), visited, enforceTLS)...)
 		commit()
 
 		// dest is not an orphaned httpproxy, as there is an httpproxy that points to it
@@ -678,6 +806,18 @@ func (b *Builder) computeRoutes(sw *ObjectStatusWriter, proxy *projcontour.HTTPP
 			RetryPolicy:           retryPolicy(route.RetryPolicy),
 			RequestHeadersPolicy:  reqHP,
 			ResponseHeadersPolicy: respHP,
+		}
+
+		if rootProxy.VirtualHost.AuthorizationConfigured() {
+			// Take the default for enabling authorization
+			// from the virtual host. If this route has a
+			// policy, let that override.
+			r.AuthDisabled = rootProxy.VirtualHost.DisableAuthorization()
+			if route.AuthPolicy != nil {
+				r.AuthDisabled = route.DisableAuthorization()
+			}
+
+			r.AuthContext = route.AuthorizationContext(rootProxy.VirtualHost.AuthorizationContext())
 		}
 
 		if len(route.GetPrefixReplacements()) > 0 {
@@ -839,6 +979,10 @@ func includeConditionsIdentical(includes []projcontour.Include) bool {
 func (b *Builder) buildDAG() *DAG {
 	var dag DAG
 
+	for _, s := range b.extensions {
+		dag.roots = append(dag.roots, s)
+	}
+
 	http := b.buildHTTPListener()
 	if len(http.VirtualHosts) > 0 {
 		dag.roots = append(dag.roots, http)
@@ -858,6 +1002,7 @@ func (b *Builder) buildDAG() *DAG {
 			commit()
 		}
 	}
+
 	dag.statuses = b.statuses
 	return &dag
 }

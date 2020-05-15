@@ -24,9 +24,11 @@ import (
 	envoy_api_v2_core "github.com/envoyproxy/go-control-plane/envoy/api/v2/core"
 	envoy_api_v2_listener "github.com/envoyproxy/go-control-plane/envoy/api/v2/listener"
 	accesslog "github.com/envoyproxy/go-control-plane/envoy/config/filter/accesslog/v2"
+	envoy_config_filter_http_ext_authz_v2 "github.com/envoyproxy/go-control-plane/envoy/config/filter/http/ext_authz/v2"
 	lua "github.com/envoyproxy/go-control-plane/envoy/config/filter/http/lua/v2"
 	http "github.com/envoyproxy/go-control-plane/envoy/config/filter/network/http_connection_manager/v2"
 	tcp "github.com/envoyproxy/go-control-plane/envoy/config/filter/network/tcp_proxy/v2"
+	envoy_type "github.com/envoyproxy/go-control-plane/envoy/type"
 	"github.com/envoyproxy/go-control-plane/pkg/wellknown"
 	"github.com/projectcontour/contour/internal/dag"
 	"github.com/projectcontour/contour/internal/protobuf"
@@ -218,7 +220,18 @@ func (b *httpConnectionManagerBuilder) DefaultFilters() *httpConnectionManagerBu
 }
 
 func (b *httpConnectionManagerBuilder) AddFilter(f *http.HttpFilter) *httpConnectionManagerBuilder {
-	b.filters = append(b.filters, f)
+	if f != nil {
+		b.filters = append(b.filters, f)
+	}
+
+	return b
+}
+
+func (b *httpConnectionManagerBuilder) AddFilters(filters ...*http.HttpFilter) *httpConnectionManagerBuilder {
+	for _, f := range filters {
+		b.filters = append(b.filters, f)
+	}
+
 	return b
 }
 
@@ -443,6 +456,47 @@ end
 			TypedConfig: protobuf.MustMarshalAny(&lua.Lua{
 				InlineCode: fmt.Sprintf(code, fqdn),
 			}),
+		},
+	}
+}
+
+func FilterExternalAuthz(authzClusterName string, timeout time.Duration) *http.HttpFilter {
+	authConfig := envoy_config_filter_http_ext_authz_v2.ExtAuthz{
+		Services: &envoy_config_filter_http_ext_authz_v2.ExtAuthz_GrpcService{
+			GrpcService: &envoy_api_v2_core.GrpcService{
+				TargetSpecifier: &envoy_api_v2_core.GrpcService_EnvoyGrpc_{
+					EnvoyGrpc: &envoy_api_v2_core.GrpcService_EnvoyGrpc{
+						ClusterName: authzClusterName,
+					},
+				},
+				Timeout: durationOrDefault(
+					timeout, 200*time.Millisecond /* Envoy default */),
+				// We don't need to configure metadata here, since we allow
+				// operators to specify authorization context parameters at
+				// the virtual host and route.
+				InitialMetadata: []*envoy_api_v2_core.HeaderValue{},
+			},
+		},
+		// Pretty sure we always want this. Why have an
+		// external auth service if it is not going to affect
+		// routing decisions?
+		ClearRouteCache: true,
+		// Always fail closed (i.e. deny access if the support service fails).
+		FailureModeAllow: false,
+		StatusOnError: &envoy_type.HttpStatus{
+			Code: envoy_type.StatusCode_Forbidden,
+		},
+		MetadataContextNamespaces: []string{},
+		IncludePeerCertificate:    true,
+	}
+
+	// TODO(jpeach): When we move to the Envoy v3 API, propagate the
+	// `transport_api_version` from ExtensionServiceSpec ProtocolVersion.
+
+	return &http.HttpFilter{
+		Name: "envoy.filters.http.ext_authz",
+		ConfigType: &http.HttpFilter_TypedConfig{
+			TypedConfig: protobuf.MustMarshalAny(&authConfig),
 		},
 	}
 }

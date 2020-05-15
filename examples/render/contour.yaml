@@ -117,6 +117,249 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.2.9
   creationTimestamp: null
+  name: extensionservices.projectcontour.io
+spec:
+  group: projectcontour.io
+  names:
+    kind: ExtensionService
+    listKind: ExtensionServiceList
+    plural: extensionservices
+    shortNames:
+    - supportservice
+    - supportservices
+    singular: extensionservice
+  scope: Namespaced
+  subresources:
+    status: {}
+  validation:
+    openAPIV3Schema:
+      description: ExtensionService is the Schema for the externalclusters API
+      properties:
+        apiVersion:
+          description: 'APIVersion defines the versioned schema of this representation
+            of an object. Servers should convert recognized schemas to the latest
+            internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+          type: string
+        kind:
+          description: 'Kind is a string value representing the REST resource this
+            object represents. Servers may infer this from the endpoint the client
+            submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+          type: string
+        metadata:
+          type: object
+        spec:
+          description: ExtensionServiceSpec defines the desired state of ExtensionService
+          properties:
+            loadBalancerPolicy:
+              description: The load balancing policy for sending requests to the service.
+              properties:
+                strategy:
+                  description: Strategy specifies the policy used to balance requests
+                    across the pool of backend pods. Valid policy names are `Random`,
+                    `RoundRobin`, `WeightedLeastRequest`, `Random` and `Cookie`. If
+                    an unknown strategy name is specified or no policy is supplied,
+                    the default `RoundRobin` policy is used.
+                  type: string
+              type: object
+            protocolVersion:
+              description: This field sets the version of the GRPC protocol that Envoy
+                uses to send requests to the support service. Since Contour always
+                uses the v2 Envoy API, this is currently fixed at "v2". However, other
+                protocol options will be available in future.
+              enum:
+              - v2
+              type: string
+            service:
+              description: Service defines an Kubernetes Service to proxy traffic.
+              properties:
+                mirror:
+                  description: If Mirror is true the Service will receive a read only
+                    mirror of the traffic for this route.
+                  type: boolean
+                name:
+                  description: Name is the name of Kubernetes service to proxy traffic.
+                    Names defined here will be used to look up corresponding endpoints
+                    which contain the ips to route.
+                  type: string
+                port:
+                  description: Port (defined as Integer) to proxy traffic to since
+                    a service can have multiple defined.
+                  exclusiveMaximum: true
+                  maximum: 65536
+                  minimum: 1
+                  type: integer
+                protocol:
+                  description: Protocol may be used to specify (or override) the protocol
+                    used to reach this Service. Values may be tls, h2, h2c. If omitted,
+                    protocol-selection falls back on Service annotations.
+                  enum:
+                  - h2
+                  - h2c
+                  - tls
+                  type: string
+                requestHeadersPolicy:
+                  description: The policy for managing request headers during proxying
+                  properties:
+                    remove:
+                      description: Remove specifies a list of HTTP header names to
+                        remove.
+                      items:
+                        type: string
+                      type: array
+                    set:
+                      description: Set specifies a list of HTTP header values that
+                        will be set in the HTTP header. If the header does not exist
+                        it will be added, otherwise it will be overwritten with the
+                        new value.
+                      items:
+                        description: HeaderValue represents a header name/value pair
+                        properties:
+                          name:
+                            description: Name represents a key of a header
+                            minLength: 1
+                            type: string
+                          value:
+                            description: Value represents the value of a header specified
+                              by a key
+                            minLength: 1
+                            type: string
+                        required:
+                        - name
+                        - value
+                        type: object
+                      type: array
+                  type: object
+                responseHeadersPolicy:
+                  description: The policy for managing response headers during proxying
+                  properties:
+                    remove:
+                      description: Remove specifies a list of HTTP header names to
+                        remove.
+                      items:
+                        type: string
+                      type: array
+                    set:
+                      description: Set specifies a list of HTTP header values that
+                        will be set in the HTTP header. If the header does not exist
+                        it will be added, otherwise it will be overwritten with the
+                        new value.
+                      items:
+                        description: HeaderValue represents a header name/value pair
+                        properties:
+                          name:
+                            description: Name represents a key of a header
+                            minLength: 1
+                            type: string
+                          value:
+                            description: Value represents the value of a header specified
+                              by a key
+                            minLength: 1
+                            type: string
+                        required:
+                        - name
+                        - value
+                        type: object
+                      type: array
+                  type: object
+                validation:
+                  description: UpstreamValidation defines how to verify the backend
+                    service's certificate
+                  properties:
+                    caSecret:
+                      description: Name of the Kubernetes secret be used to validate
+                        the certificate presented by the backend
+                      type: string
+                    subjectName:
+                      description: Key which is expected to be present in the 'subjectAltName'
+                        of the presented certificate
+                      type: string
+                  required:
+                  - caSecret
+                  - subjectName
+                  type: object
+                weight:
+                  description: Weight defines percentage of traffic to balance traffic
+                  format: int64
+                  minimum: 0
+                  type: integer
+              required:
+              - name
+              - port
+              type: object
+          required:
+          - service
+          type: object
+        status:
+          description: ExtensionServiceStatus defines the observed state of ExtensionService
+          properties:
+            conditions:
+              items:
+                description: Condition ...
+                properties:
+                  lastTransitionTime:
+                    description: Last time the condition transitioned from one status
+                      to another. This should be when the underlying condition changed.  If
+                      that is not known, then using the time when the API field changed
+                      is acceptable.
+                    format: date-time
+                    type: string
+                  message:
+                    description: A human readable message indicating details about
+                      the transition. This field may be empty.
+                    type: string
+                  observedGeneration:
+                    description: If set, this represents the .metadata.generation
+                      that the condition was set based upon. For instance, if .metadata.generation
+                      is currently 12, but the .status.condition[x].observedGeneration
+                      is 9, the condition is out of date with respect to the current
+                      state of the instance.
+                    format: int64
+                    type: integer
+                  reason:
+                    description: The reason for the condition's last transition in
+                      CamelCase. The specific API may choose whether or not this field
+                      is considered a guaranteed API. This field may not be empty.
+                    type: string
+                  status:
+                    description: Status of the condition, one of True, False, Unknown.
+                    type: string
+                  type:
+                    description: Type of condition in CamelCase or in foo.example.com/CamelCase.
+                      Many .condition.type values are consistent across resources
+                      like Available, but because arbitrary conditions can be useful
+                      (see .node.status.conditions), the ability to deconflict is
+                      important.
+                    type: string
+                required:
+                - lastTransitionTime
+                - message
+                - reason
+                - status
+                - type
+                type: object
+              type: array
+          required:
+          - conditions
+          type: object
+      type: object
+  version: v1alpha1
+  versions:
+  - name: v1alpha1
+    served: true
+    storage: true
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: []
+  storedVersions: []
+---
+apiVersion: apiextensions.k8s.io/v1beta1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.2.9
+  creationTimestamp: null
   name: httpproxies.projectcontour.io
 spec:
   additionalPrinterColumns:
@@ -236,6 +479,24 @@ spec:
               items:
                 description: Route contains the set of routes for a virtual host.
                 properties:
+                  authPolicy:
+                    description: AuthPolicy updates the authorization policy for client
+                      requests that match this route.
+                    properties:
+                      context:
+                        additionalProperties:
+                          type: string
+                        description: Context is a set of key/value pairs that are
+                          sent to the authentication server in the check request.
+                          If a context is provided at an enclosing scope, the entries
+                          are merged such that the inner scope overrides matching
+                          keys from the outer scope.
+                        type: object
+                      disabled:
+                        description: When true, this field disables client request
+                          authentication for the scope of the policy.
+                        type: boolean
+                    type: object
                   conditions:
                     description: Conditions are a set of routing properties that is
                       applied to an HTTPProxy in a namespace.
@@ -487,7 +748,7 @@ spec:
                         type: array
                     type: object
                   services:
-                    description: Services are the services to proxy traffic.
+                    description: Service are the services to proxy traffic.
                     items:
                       description: Service defines an Kubernetes Service to proxy
                         traffic.
@@ -833,15 +1094,75 @@ spec:
               description: Virtualhost appears at most once. If it is present, the
                 object is considered to be a "root".
               properties:
+                authorization:
+                  description: This field configures a support service to perform
+                    authorization for this virtual host. Authorization can only be
+                    configured on virtual hosts that have TLS enabled. If the TLS
+                    configuration requires client certificate /validation, the client
+                    certificate is always included in the authentication check request.
+                  properties:
+                    authPolicy:
+                      description: AuthorizationPolicy modifies how client requests
+                        are authenticated.
+                      properties:
+                        context:
+                          additionalProperties:
+                            type: string
+                          description: Context is a set of key/value pairs that are
+                            sent to the authentication server in the check request.
+                            If a context is provided at an enclosing scope, the entries
+                            are merged such that the inner scope overrides matching
+                            keys from the outer scope.
+                          type: object
+                        disabled:
+                          description: When true, this field disables client request
+                            authentication for the scope of the policy.
+                          type: boolean
+                      type: object
+                    failOpen:
+                      description: If FailOpen is true, the client request is forwarded
+                        to the upstream service even if the authorization server fails
+                        to respond. This field should not be set in most cases. It
+                        is intended for use only while migrating applications from
+                        internal authorization to Contour external authorization.
+                      type: boolean
+                    serviceRef:
+                      description: ExtensionServiceReference names a SupportService
+                        resource.
+                      properties:
+                        apiVersion:
+                          description: API version of the referent.
+                          type: string
+                        kind:
+                          description: 'Kind of the referent. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+                          type: string
+                        name:
+                          description: 'Name of the referent. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names'
+                          type: string
+                        namespace:
+                          description: 'Namespace of the referent. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces/'
+                          type: string
+                      type: object
+                    timeout:
+                      description: Timeout configures maximum time to wait for a check
+                        response from the authorization server. Timeout durations
+                        are expressed in the Go [Duration format](https://godoc.org/time#ParseDuration).
+                        Valid time units are "ns", "us" (or "µs"), "ms", "s", "m",
+                        "h". The string "infinity" is also a valid input and specifies
+                        no timeout.
+                      type: string
+                  required:
+                  - serviceRef
+                  type: object
                 fqdn:
                   description: The fully qualified domain name of the root of the
                     ingress tree all leaves of the DAG rooted at this object relate
-                    to the fqdn
+                    to the fqdn.
                   type: string
                 tls:
-                  description: If present describes tls properties. The SNI names
+                  description: If present describes TLS properties. The SNI names
                     that will be matched on are described in fqdn, the tls.secretName
-                    secret must contain a matching certificate
+                    secret must contain a matching certificate.
                   properties:
                     clientValidation:
                       description: "ClientValidation defines how to verify the client
@@ -1182,6 +1503,23 @@ rules:
   - projectcontour.io
   resources:
   - httpproxies/status
+  verbs:
+  - create
+  - get
+  - update
+- apiGroups:
+  - projectcontour.io
+  resources:
+  - supportservices
+  - tlscertificatedelegations
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - projectcontour.io
+  resources:
+  - supportservices/status
   verbs:
   - create
   - get

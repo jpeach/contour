@@ -22,6 +22,7 @@ import (
 	envoy_api_v2_route "github.com/envoyproxy/go-control-plane/envoy/api/v2/route"
 	resource "github.com/envoyproxy/go-control-plane/pkg/resource/v2"
 	"github.com/golang/protobuf/proto"
+	"github.com/golang/protobuf/ptypes/any"
 	"github.com/projectcontour/contour/internal/dag"
 	"github.com/projectcontour/contour/internal/envoy"
 	"github.com/projectcontour/contour/internal/protobuf"
@@ -142,6 +143,7 @@ func (v *routeVisitor) onVirtualHost(vh *dag.VirtualHost) {
 				rt.ResponseHeadersToAdd = envoy.HeaderValueList(route.ResponseHeadersPolicy.Set, false)
 				rt.ResponseHeadersToRemove = route.ResponseHeadersPolicy.Remove
 			}
+
 			routes = append(routes, rt)
 		}
 	})
@@ -175,6 +177,18 @@ func (v *routeVisitor) onSecureVirtualHost(svh *dag.SecureVirtualHost) {
 			rt.ResponseHeadersToAdd = envoy.HeaderValueList(route.ResponseHeadersPolicy.Set, false)
 			rt.ResponseHeadersToRemove = route.ResponseHeadersPolicy.Remove
 		}
+
+		// Apply per-route authorization policy modifications.
+		if route.AuthDisabled {
+			rt.TypedPerFilterConfig = map[string]*any.Any{
+				"envoy.filters.http.ext_authz": envoy.RouteAuthzDisabled(),
+			}
+		} else if len(route.AuthContext) > 0 {
+			rt.TypedPerFilterConfig = map[string]*any.Any{
+				"envoy.filters.http.ext_authz": envoy.RouteAuthzContext(route.AuthContext),
+			}
+		}
+
 		routes = append(routes, rt)
 	})
 

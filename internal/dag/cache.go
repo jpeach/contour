@@ -16,6 +16,7 @@ package dag
 import (
 	"sync"
 
+	projectcontourv1alpha1 "github.com/projectcontour/contour/apis/projectcontour/v1alpha1"
 	"github.com/projectcontour/contour/internal/annotation"
 	"github.com/projectcontour/contour/internal/k8s"
 	v1 "k8s.io/api/core/v1"
@@ -48,6 +49,7 @@ type KubernetesCache struct {
 	gateways             map[k8s.FullName]*serviceapis.Gateway
 	httproutes           map[k8s.FullName]*serviceapis.HTTPRoute
 	tcproutes            map[k8s.FullName]*serviceapis.TcpRoute
+	extensions           map[k8s.FullName]*projectcontourv1alpha1.ExtensionService
 
 	initialize sync.Once
 
@@ -65,6 +67,7 @@ func (kc *KubernetesCache) init() {
 	kc.gateways = make(map[k8s.FullName]*serviceapis.Gateway)
 	kc.httproutes = make(map[k8s.FullName]*serviceapis.HTTPRoute)
 	kc.tcproutes = make(map[k8s.FullName]*serviceapis.TcpRoute)
+	kc.extensions = make(map[k8s.FullName]*projectcontourv1alpha1.ExtensionService)
 }
 
 // matchesIngressClass returns true if the given Kubernetes object
@@ -178,6 +181,10 @@ func (kc *KubernetesCache) Insert(obj interface{}) bool {
 		kc.tcproutes[k8s.ToFullName(obj)] = obj
 		return true
 
+	case *projectcontourv1alpha1.ExtensionService:
+		kc.extensions[k8s.ToFullName(obj)] = obj
+		return true
+
 	default:
 		// not an interesting object
 		kc.WithField("object", obj).Error("insert unknown object")
@@ -259,6 +266,9 @@ func (kc *KubernetesCache) remove(obj interface{}) bool {
 		kc.WithField("experimental", "service-apis").WithField("name", m.Name).WithField("namespace", m.Namespace).Debug("Removing TcpRoute")
 		delete(kc.tcproutes, m)
 		return ok
+	case *projectcontourv1alpha1.ExtensionService:
+		delete(kc.extensions, k8s.ToFullName(obj))
+		return true
 
 	default:
 		// not interesting

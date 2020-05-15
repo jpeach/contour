@@ -27,7 +27,7 @@ import (
 )
 
 // A DAG represents a directed acylic graph of objects representing the relationship
-// between Kubernetes Ingress objects, the backend Services, and Secret objects.
+// between Kubernetes Ingress objects, the backend Service, and Secret objects.
 // The DAG models these relationships as Roots and Vertices.
 type DAG struct {
 	// roots are the roots of this dag
@@ -106,6 +106,12 @@ type Route struct {
 	// Should this route generate a 301 upgrade if accessed
 	// over HTTP?
 	HTTPSUpgrade bool
+
+	// Disable authorization on this route.
+	AuthDisabled bool
+
+	// Authorization context (if auth is enabled).
+	AuthContext map[string]string
 
 	// Is this a websocket route?
 	// TODO(dfc) this should go on the service
@@ -285,6 +291,9 @@ type SecureVirtualHost struct {
 
 	// DownstreamValidation defines how to verify the client's certificate.
 	DownstreamValidation *PeerValidationContext
+
+	AuthorizationService *ExtensionService
+	AuthorizationTimeout time.Duration
 }
 
 func (s *SecureVirtualHost) Visit(f func(Vertex)) {
@@ -303,6 +312,16 @@ func (s *SecureVirtualHost) Valid() bool {
 	// 2. it has a tcpproxy, because the tcpproxy backend may negotiate TLS itself.
 	return (s.Secret != nil && len(s.routes) > 0) || s.TCPProxy != nil
 }
+
+type ExtensionService struct {
+	Cluster Cluster
+}
+
+func (e *ExtensionService) Visit(f func(Vertex)) {
+	f(e.Cluster)
+}
+
+var _ Visitable = &ExtensionService{}
 
 type Visitable interface {
 	Visit(func(Vertex))
@@ -393,10 +412,10 @@ func (s *Service) ToFullName() servicemeta {
 }
 
 func (s *Service) Visit(func(Vertex)) {
-	// Services are leaves in the DAG.
+	// Service are leaves in the DAG.
 }
 
-// Cluster holds the connetion specific parameters that apply to
+// Cluster holds the connection specific parameters that apply to
 // traffic routed to an upstream service.
 type Cluster struct {
 

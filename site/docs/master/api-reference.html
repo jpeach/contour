@@ -3,6 +3,9 @@
 <li>
 <a href="#projectcontour.io%2fv1">projectcontour.io/v1</a>
 </li>
+<li>
+<a href="#projectcontour.io%2fv1alpha1">projectcontour.io/v1alpha1</a>
+</li>
 </ul>
 <h2 id="projectcontour.io/v1">projectcontour.io/v1</h2>
 <p>
@@ -235,6 +238,141 @@ TLSCertificateDelegationSpec
 </tr>
 </tbody>
 </table>
+<h3 id="projectcontour.io/v1.AuthorizationPolicy">AuthorizationPolicy
+</h3>
+<p>
+(<em>Appears on:</em>
+<a href="#projectcontour.io/v1.AuthorizationServer">AuthorizationServer</a>, 
+<a href="#projectcontour.io/v1.Route">Route</a>)
+</p>
+<p>
+<p>AuthorizationPolicy modifies how client requests are authenticated.</p>
+</p>
+<table class="table table-striped table-borderless" style="border:none">
+<thead class="border-bottom">
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody class="border-top">
+<tr>
+<td style="white-space:nowrap">
+<code>disabled</code>
+<br>
+<em>
+bool
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>When true, this field disables client request authentication
+for the scope of the policy.</p>
+</td>
+</tr>
+<tr>
+<td style="white-space:nowrap">
+<code>context</code>
+<br>
+<em>
+map[string]string
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>Context is a set of key/value pairs that are sent to the
+authentication server in the check request. If a context
+is provided at an enclosing scope, the entries are merged
+such that the inner scope overrides matching keys from the
+outer scope.</p>
+</td>
+</tr>
+</tbody>
+</table>
+<h3 id="projectcontour.io/v1.AuthorizationServer">AuthorizationServer
+</h3>
+<p>
+(<em>Appears on:</em>
+<a href="#projectcontour.io/v1.VirtualHost">VirtualHost</a>)
+</p>
+<p>
+<p>AuthorizationServer configured an external server to authenticate
+client requests. The external server must implement the Envoy
+external authorization GRPC protocol. Currently, the
+<a href="https://www.envoyproxy.io/docs/envoy/latest/api-v2/service/auth/v2/external_auth.proto">v2</a>
+is always used, but authorization server authors should implement
+the v3 protocol as well in the expectation that it will be supported
+in future.</p>
+</p>
+<table class="table table-striped table-borderless" style="border:none">
+<thead class="border-bottom">
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody class="border-top">
+<tr>
+<td style="white-space:nowrap">
+<code>serviceRef</code>
+<br>
+<em>
+<a href="#projectcontour.io/v1.ExtensionServiceReference">
+ExtensionServiceReference
+</a>
+</em>
+</td>
+<td>
+</td>
+</tr>
+<tr>
+<td style="white-space:nowrap">
+<code>authPolicy</code>
+<br>
+<em>
+<a href="#projectcontour.io/v1.AuthorizationPolicy">
+AuthorizationPolicy
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+</td>
+</tr>
+<tr>
+<td style="white-space:nowrap">
+<code>timeout</code>
+<br>
+<em>
+string
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>Timeout configures maximum time to wait for a check response from the authorization server.
+Timeout durations are expressed in the Go <a href="https://godoc.org/time#ParseDuration">Duration format</a>.
+Valid time units are &ldquo;ns&rdquo;, &ldquo;us&rdquo; (or &ldquo;µs&rdquo;), &ldquo;ms&rdquo;, &ldquo;s&rdquo;, &ldquo;m&rdquo;, &ldquo;h&rdquo;.
+The string &ldquo;infinity&rdquo; is also a valid input and specifies no timeout.</p>
+</td>
+</tr>
+<tr>
+<td style="white-space:nowrap">
+<code>failOpen</code>
+<br>
+<em>
+bool
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>If FailOpen is true, the client request is forwarded to the upstream service
+even if the authorization server fails to respond. This field should not be
+set in most cases. It is intended for use only while migrating applications
+from internal authorization to Contour external authorization.</p>
+</td>
+</tr>
+</tbody>
+</table>
 <h3 id="projectcontour.io/v1.CertificateDelegation">CertificateDelegation
 </h3>
 <p>
@@ -360,6 +498,77 @@ string
 <td>
 <p>Name of a Kubernetes secret that contains a CA certificate bundle.
 The client certificate must validate against the certificates in the bundle.</p>
+</td>
+</tr>
+</tbody>
+</table>
+<h3 id="projectcontour.io/v1.ExtensionServiceReference">ExtensionServiceReference
+</h3>
+<p>
+(<em>Appears on:</em>
+<a href="#projectcontour.io/v1.AuthorizationServer">AuthorizationServer</a>)
+</p>
+<p>
+<p>ExtensionServiceReference names a SupportService resource.</p>
+</p>
+<table class="table table-striped table-borderless" style="border:none">
+<thead class="border-bottom">
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody class="border-top">
+<tr>
+<td style="white-space:nowrap">
+<code>apiVersion</code>
+<br>
+<em>
+string
+</em>
+</td>
+<td>
+<p>API version of the referent.</p>
+</td>
+</tr>
+<tr>
+<td style="white-space:nowrap">
+<code>kind</code>
+<br>
+<em>
+string
+</em>
+</td>
+<td>
+<p>Kind of the referent.
+More info: <a href="https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds">https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds</a></p>
+</td>
+</tr>
+<tr>
+<td style="white-space:nowrap">
+<code>namespace</code>
+<br>
+<em>
+string
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>Namespace of the referent.
+More info: <a href="https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces/">https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces/</a></p>
+</td>
+</tr>
+<tr>
+<td style="white-space:nowrap">
+<code>name</code>
+<br>
+<em>
+string
+</em>
+</td>
+<td>
+<p>Name of the referent.
+More info: <a href="https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names">https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names</a></p>
 </td>
 </tr>
 </tbody>
@@ -862,6 +1071,7 @@ string
 </h3>
 <p>
 (<em>Appears on:</em>
+<a href="#projectcontour.io/v1alpha1.ExtensionServiceSpec">ExtensionServiceSpec</a>, 
 <a href="#projectcontour.io/v1.Route">Route</a>, 
 <a href="#projectcontour.io/v1.TCPProxy">TCPProxy</a>)
 </p>
@@ -1132,7 +1342,7 @@ Ignored if NumRetries is not supplied.</p>
 </em>
 </td>
 <td>
-<p>Services are the services to proxy traffic.</p>
+<p>Service are the services to proxy traffic.</p>
 </td>
 </tr>
 <tr>
@@ -1160,6 +1370,22 @@ bool
 <em>(Optional)</em>
 <p>Allow this path to respond to insecure requests over HTTP which are normally
 not permitted when a <code>virtualhost.tls</code> block is present.</p>
+</td>
+</tr>
+<tr>
+<td style="white-space:nowrap">
+<code>authPolicy</code>
+<br>
+<em>
+<a href="#projectcontour.io/v1.AuthorizationPolicy">
+AuthorizationPolicy
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>AuthPolicy updates the authorization policy for client
+requests that match this route.</p>
 </td>
 </tr>
 <tr>
@@ -1274,6 +1500,7 @@ HeadersPolicy
 </h3>
 <p>
 (<em>Appears on:</em>
+<a href="#projectcontour.io/v1alpha1.ExtensionServiceSpec">ExtensionServiceSpec</a>, 
 <a href="#projectcontour.io/v1.Route">Route</a>, 
 <a href="#projectcontour.io/v1.TCPProxy">TCPProxy</a>)
 </p>
@@ -1863,7 +2090,7 @@ string
 </td>
 <td>
 <p>The fully qualified domain name of the root of the ingress tree
-all leaves of the DAG rooted at this object relate to the fqdn</p>
+all leaves of the DAG rooted at this object relate to the fqdn.</p>
 </td>
 </tr>
 <tr>
@@ -1878,9 +2105,372 @@ TLS
 </td>
 <td>
 <em>(Optional)</em>
-<p>If present describes tls properties. The SNI names that will be matched on
+<p>If present describes TLS properties. The SNI names that will be matched on
 are described in fqdn, the tls.secretName secret must contain a
-matching certificate</p>
+matching certificate.</p>
+</td>
+</tr>
+<tr>
+<td style="white-space:nowrap">
+<code>authorization</code>
+<br>
+<em>
+<a href="#projectcontour.io/v1.AuthorizationServer">
+AuthorizationServer
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>This field configures a support service to perform
+authorization for this virtual host. Authorization can
+only be configured on virtual hosts that have TLS enabled.
+If the TLS configuration requires client certificate
+/validation, the client certificate is always included in the
+authentication check request.</p>
+</td>
+</tr>
+</tbody>
+</table>
+<hr/>
+<h2 id="projectcontour.io/v1alpha1">projectcontour.io/v1alpha1</h2>
+<p>
+<p>Package v1alpha1 contains API Schema definitions for the projectcontour.io v1alpha1 API group</p>
+</p>
+Resource Types:
+<ul><li>
+<a href="#projectcontour.io/v1alpha1.ExtensionService">ExtensionService</a>
+</li></ul>
+<h3 id="projectcontour.io/v1alpha1.ExtensionService">ExtensionService
+</h3>
+<p>
+<p>ExtensionService is the Schema for the externalclusters API</p>
+</p>
+<table class="table table-striped table-borderless" style="border:none">
+<thead class="border-bottom">
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody class="border-top">
+<tr>
+<td>
+<code>apiVersion</code>
+<br>
+string</td>
+<td>
+<code>
+projectcontour.io/v1alpha1
+</code>
+</td>
+</tr>
+<tr>
+<td>
+<code>kind</code>
+<br>
+string
+</td>
+<td><code>ExtensionService</code></td>
+</tr>
+<tr>
+<td style="white-space:nowrap">
+<code>metadata</code>
+<br>
+<em>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.18/#objectmeta-v1-meta">
+Kubernetes meta/v1.ObjectMeta
+</a>
+</em>
+</td>
+<td>
+Refer to the Kubernetes API documentation for the fields of the
+<code>metadata</code> field.
+</td>
+</tr>
+<tr>
+<td style="white-space:nowrap">
+<code>spec</code>
+<br>
+<em>
+<a href="#projectcontour.io/v1alpha1.ExtensionServiceSpec">
+ExtensionServiceSpec
+</a>
+</em>
+</td>
+<td>
+<br>
+<br>
+<table style="border:none">
+<tr>
+<td style="white-space:nowrap">
+<code>service</code>
+<br>
+<em>
+<a href="#projectcontour.io/v1.Service">
+Service
+</a>
+</em>
+</td>
+<td>
+</td>
+</tr>
+<tr>
+<td style="white-space:nowrap">
+<code>loadBalancerPolicy</code>
+<br>
+<em>
+<a href="#projectcontour.io/v1.LoadBalancerPolicy">
+LoadBalancerPolicy
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>The load balancing policy for sending requests to the service.</p>
+</td>
+</tr>
+<tr>
+<td style="white-space:nowrap">
+<code>protocolVersion</code>
+<br>
+<em>
+<a href="#projectcontour.io/v1alpha1.ExtensionProtocolVersion">
+ExtensionProtocolVersion
+</a>
+</em>
+</td>
+<td>
+<p>This field sets the version of the GRPC protocol that Envoy uses to
+send requests to the support service. Since Contour always uses the
+v2 Envoy API, this is currently fixed at &ldquo;v2&rdquo;. However, other
+protocol options will be available in future.</p>
+</td>
+</tr>
+</table>
+</td>
+</tr>
+<tr>
+<td style="white-space:nowrap">
+<code>status</code>
+<br>
+<em>
+<a href="#projectcontour.io/v1alpha1.ExtensionServiceStatus">
+ExtensionServiceStatus
+</a>
+</em>
+</td>
+<td>
+</td>
+</tr>
+</tbody>
+</table>
+<h3 id="projectcontour.io/v1alpha1.Condition">Condition
+</h3>
+<p>
+(<em>Appears on:</em>
+<a href="#projectcontour.io/v1alpha1.ExtensionServiceStatus">ExtensionServiceStatus</a>)
+</p>
+<p>
+<p>Condition &hellip;</p>
+</p>
+<table class="table table-striped table-borderless" style="border:none">
+<thead class="border-bottom">
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody class="border-top">
+<tr>
+<td style="white-space:nowrap">
+<code>type</code>
+<br>
+<em>
+string
+</em>
+</td>
+<td>
+<p>Type of condition in CamelCase or in foo.example.com/CamelCase.
+Many .condition.type values are consistent across resources like Available, but because arbitrary conditions can be
+useful (see .node.status.conditions), the ability to deconflict is important.</p>
+</td>
+</tr>
+<tr>
+<td style="white-space:nowrap">
+<code>status</code>
+<br>
+<em>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.18/#conditionstatus-v1-meta">
+Kubernetes meta/v1.ConditionStatus
+</a>
+</em>
+</td>
+<td>
+<p>Status of the condition, one of True, False, Unknown.</p>
+</td>
+</tr>
+<tr>
+<td style="white-space:nowrap">
+<code>observedGeneration</code>
+<br>
+<em>
+int64
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>If set, this represents the .metadata.generation that the condition was set based upon.
+For instance, if .metadata.generation is currently 12, but the .status.condition[x].observedGeneration is 9, the condition is out of date
+with respect to the current state of the instance.</p>
+</td>
+</tr>
+<tr>
+<td style="white-space:nowrap">
+<code>lastTransitionTime</code>
+<br>
+<em>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.18/#time-v1-meta">
+Kubernetes meta/v1.Time
+</a>
+</em>
+</td>
+<td>
+<p>Last time the condition transitioned from one status to another.
+This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.</p>
+</td>
+</tr>
+<tr>
+<td style="white-space:nowrap">
+<code>reason</code>
+<br>
+<em>
+string
+</em>
+</td>
+<td>
+<p>The reason for the condition&rsquo;s last transition in CamelCase.
+The specific API may choose whether or not this field is considered a guaranteed API.
+This field may not be empty.</p>
+</td>
+</tr>
+<tr>
+<td style="white-space:nowrap">
+<code>message</code>
+<br>
+<em>
+string
+</em>
+</td>
+<td>
+<p>A human readable message indicating details about the transition.
+This field may be empty.</p>
+</td>
+</tr>
+</tbody>
+</table>
+<h3 id="projectcontour.io/v1alpha1.ExtensionProtocolVersion">ExtensionProtocolVersion
+(<code>string</code> alias)</h3>
+<p>
+(<em>Appears on:</em>
+<a href="#projectcontour.io/v1alpha1.ExtensionServiceSpec">ExtensionServiceSpec</a>)
+</p>
+<p>
+<p>ExtensionProtocolVersion is the version of the GRPC protocol used
+to request support services.</p>
+</p>
+<h3 id="projectcontour.io/v1alpha1.ExtensionServiceSpec">ExtensionServiceSpec
+</h3>
+<p>
+(<em>Appears on:</em>
+<a href="#projectcontour.io/v1alpha1.ExtensionService">ExtensionService</a>)
+</p>
+<p>
+<p>ExtensionServiceSpec defines the desired state of ExtensionService</p>
+</p>
+<table class="table table-striped table-borderless" style="border:none">
+<thead class="border-bottom">
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody class="border-top">
+<tr>
+<td style="white-space:nowrap">
+<code>service</code>
+<br>
+<em>
+<a href="#projectcontour.io/v1.Service">
+Service
+</a>
+</em>
+</td>
+<td>
+</td>
+</tr>
+<tr>
+<td style="white-space:nowrap">
+<code>loadBalancerPolicy</code>
+<br>
+<em>
+<a href="#projectcontour.io/v1.LoadBalancerPolicy">
+LoadBalancerPolicy
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>The load balancing policy for sending requests to the service.</p>
+</td>
+</tr>
+<tr>
+<td style="white-space:nowrap">
+<code>protocolVersion</code>
+<br>
+<em>
+<a href="#projectcontour.io/v1alpha1.ExtensionProtocolVersion">
+ExtensionProtocolVersion
+</a>
+</em>
+</td>
+<td>
+<p>This field sets the version of the GRPC protocol that Envoy uses to
+send requests to the support service. Since Contour always uses the
+v2 Envoy API, this is currently fixed at &ldquo;v2&rdquo;. However, other
+protocol options will be available in future.</p>
+</td>
+</tr>
+</tbody>
+</table>
+<h3 id="projectcontour.io/v1alpha1.ExtensionServiceStatus">ExtensionServiceStatus
+</h3>
+<p>
+(<em>Appears on:</em>
+<a href="#projectcontour.io/v1alpha1.ExtensionService">ExtensionService</a>)
+</p>
+<p>
+<p>ExtensionServiceStatus defines the observed state of ExtensionService</p>
+</p>
+<table class="table table-striped table-borderless" style="border:none">
+<thead class="border-bottom">
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody class="border-top">
+<tr>
+<td style="white-space:nowrap">
+<code>conditions</code>
+<br>
+<em>
+<a href="#projectcontour.io/v1alpha1.Condition">
+[]Condition
+</a>
+</em>
+</td>
+<td>
 </td>
 </tr>
 </tbody>

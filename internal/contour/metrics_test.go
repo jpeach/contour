@@ -136,7 +136,7 @@ func TestHTTPProxyMetrics(t *testing.T) {
 	//			Conditions: []projcontour.Condition{{
 	//				Prefix: "/doesnotmatch",
 	//			}},
-	//			Services: []projcontour.Service{{
+	//			Service: []projcontour.Service{{
 	//				Name: "home",
 	//				Port: 8080,
 	//			}},
@@ -214,7 +214,7 @@ func TestHTTPProxyMetrics(t *testing.T) {
 	//			}},
 	//		}},
 	//		Routes: []projcontour.Route{{
-	//			Services: []projcontour.Service{{
+	//			Service: []projcontour.Service{{
 	//				Name: "kuard",
 	//				Port: 8080,
 	//			}},

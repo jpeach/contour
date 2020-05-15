@@ -85,3 +85,20 @@ rules:
   - create
   - get
   - update
+- apiGroups:
+  - projectcontour.io
+  resources:
+  - supportservices
+  - tlscertificatedelegations
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - projectcontour.io
+  resources:
+  - supportservices/status
+  verbs:
+  - create
+  - get
+  - update

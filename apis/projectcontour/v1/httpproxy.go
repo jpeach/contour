@@ -94,17 +94,95 @@ type HeaderCondition struct {
 	NotExact string `json:"notexact,omitempty"`
 }
 
+// ExtensionServiceReference names a SupportService resource.
+type ExtensionServiceReference struct {
+	// API version of the referent.
+	// +required
+	APIVersion string `json:"apiVersion,omitempty" protobuf:"bytes,5,opt,name=apiVersion"`
+	// Kind of the referent.
+	// More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+	// +required
+	Kind string `json:"kind,omitempty" protobuf:"bytes,1,opt,name=kind"`
+	// Namespace of the referent.
+	// More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces/
+	// +optional
+	Namespace string `json:"namespace,omitempty" protobuf:"bytes,2,opt,name=namespace"`
+	// Name of the referent.
+	// More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+	// +required
+	Name string `json:"name,omitempty" protobuf:"bytes,3,opt,name=name"`
+}
+
+// AuthorizationPolicy modifies how client requests are authenticated.
+type AuthorizationPolicy struct {
+	// When true, this field disables client request authentication
+	// for the scope of the policy.
+	//
+	// +optional
+	Disabled bool `json:"disabled,omitempty"`
+
+	// Context is a set of key/value pairs that are sent to the
+	// authentication server in the check request. If a context
+	// is provided at an enclosing scope, the entries are merged
+	// such that the inner scope overrides matching keys from the
+	// outer scope.
+	//
+	// +optional
+	Context map[string]string `json:"context,omitempty"`
+}
+
+// AuthorizationServer configured an external server to authenticate
+// client requests. The external server must implement the Envoy
+// external authorization GRPC protocol. Currently, the
+// [v2](https://www.envoyproxy.io/docs/envoy/latest/api-v2/service/auth/v2/external_auth.proto)
+// is always used, but authorization server authors should implement
+// the v3 protocol as well in the expectation that it will be supported
+// in future.
+type AuthorizationServer struct {
+	// +required
+	ServiceRef ExtensionServiceReference `json:"serviceRef"`
+
+	// +optional
+	AuthPolicy *AuthorizationPolicy `json:"authPolicy,omitempty"`
+
+	// Timeout configures maximum time to wait for a check response from the authorization server.
+	// Timeout durations are expressed in the Go [Duration format](https://godoc.org/time#ParseDuration).
+	// Valid time units are "ns", "us" (or "µs"), "ms", "s", "m", "h".
+	// The string "infinity" is also a valid input and specifies no timeout.
+	//
+	// +optional
+	Timeout string `json:"timeout,omitempty"`
+
+	// If FailOpen is true, the client request is forwarded to the upstream service
+	// even if the authorization server fails to respond. This field should not be
+	// set in most cases. It is intended for use only while migrating applications
+	// from internal authorization to Contour external authorization.
+	//
+	// +optional
+	FailOpen bool `json:"failOpen,omitempty"`
+}
+
 // VirtualHost appears at most once. If it is present, the object is considered
 // to be a "root".
 type VirtualHost struct {
 	// The fully qualified domain name of the root of the ingress tree
-	// all leaves of the DAG rooted at this object relate to the fqdn
+	// all leaves of the DAG rooted at this object relate to the fqdn.
 	Fqdn string `json:"fqdn"`
-	// If present describes tls properties. The SNI names that will be matched on
+	// If present describes TLS properties. The SNI names that will be matched on
 	// are described in fqdn, the tls.secretName secret must contain a
-	// matching certificate
+	// matching certificate.
 	// +optional
 	TLS *TLS `json:"tls,omitempty"`
+
+	// This field configures a support service to perform
+	// authorization for this virtual host. Authorization can
+	// only be configured on virtual hosts that have TLS enabled.
+	// If the TLS configuration requires client certificate
+	///validation, the client certificate is always included in the
+	// authentication check request.
+	//
+	// +optional
+	Authorization *AuthorizationServer `json:"authorization,omitempty"`
 }
 
 // TLS describes tls properties. The SNI names that will be matched on
@@ -142,7 +220,7 @@ type Route struct {
 	// Conditions are a set of routing properties that is applied to an HTTPProxy in a namespace.
 	// +optional
 	Conditions []Condition `json:"conditions,omitempty"`
-	// Services are the services to proxy traffic.
+	// Service are the services to proxy traffic.
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:Required
 	Services []Service `json:"services"`
@@ -153,6 +231,10 @@ type Route struct {
 	// not permitted when a `virtualhost.tls` block is present.
 	// +optional
 	PermitInsecure bool `json:"permitInsecure,omitempty"`
+	// AuthPolicy updates the authorization policy for client
+	// requests that match this route.
+	// +optional
+	AuthPolicy *AuthorizationPolicy `json:"authPolicy,omitempty"`
 	// The timeout policy for this route.
 	// +optional
 	TimeoutPolicy *TimeoutPolicy `json:"timeoutPolicy,omitempty"`
@@ -176,13 +258,6 @@ type Route struct {
 	// The policy for managing response headers during proxying
 	// +optional
 	ResponseHeadersPolicy *HeadersPolicy `json:"responseHeadersPolicy,omitempty"`
-}
-
-func (r *Route) GetPrefixReplacements() []ReplacePrefix {
-	if r.PathRewritePolicy != nil {
-		return r.PathRewritePolicy.ReplacePrefix
-	}
-	return nil
 }
 
 // TCPProxy contains the set of services to proxy TCP connections.

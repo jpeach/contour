@@ -60,13 +60,12 @@ func (m StatusMutatorFunc) Mutate(old interface{}) interface{} {
 
 // StatusUpdateHandler holds the details required to actually write an Update back to the referenced object.
 type StatusUpdateHandler struct {
-	Log             logrus.FieldLogger
-	Clients         *Clients
-	UpdateChannel   chan StatusUpdate
-	LeaderElected   chan struct{}
-	IsLeader        bool
-	Converter       *UnstructuredConverter
-	InformerFactory InformerFactory
+	Log           logrus.FieldLogger
+	Clients       *Clients
+	UpdateChannel chan StatusUpdate
+	LeaderElected chan struct{}
+	IsLeader      bool
+	Converter     *UnstructuredConverter
 }
 
 // Start runs the goroutine to perform status writes.
@@ -94,24 +93,33 @@ func (suh *StatusUpdateHandler) Start(stop <-chan struct{}) error {
 				WithField("namespace", upd.NamespacedName.Namespace).
 				Debug("received a status update")
 
-			// Fetch the lister cache for the informer associated with this resource.
-			lister := suh.InformerFactory.ForResource(upd.Resource).Lister()
-			uObj, err := lister.ByNamespace(upd.NamespacedName.Namespace).Get(upd.NamespacedName.Name)
+			gvk, err := suh.Clients.KindFor(upd.Resource)
 			if err != nil {
 				suh.Log.WithError(err).
 					WithField("name", upd.NamespacedName.Name).
 					WithField("namespace", upd.NamespacedName.Namespace).
 					WithField("resource", upd.Resource).
-					Error("unable to retrieve object for updating")
+					Error("failed to map Resource to Kind ")
 				continue
 			}
 
-			obj, err := suh.Converter.FromUnstructured(uObj)
+			obj, err := suh.Converter.scheme.New(gvk)
 			if err != nil {
 				suh.Log.WithError(err).
 					WithField("name", upd.NamespacedName.Name).
 					WithField("namespace", upd.NamespacedName.Namespace).
-					Error("unable to convert from unstructured")
+					WithField("kind", gvk).
+					Error("failed to allocate template object")
+				continue
+			}
+
+			// Fetch the lister cache for the informer associated with this resource.
+			if err := suh.Clients.Cache().Get(context.Background(), upd.NamespacedName, obj); err != nil {
+				suh.Log.WithError(err).
+					WithField("name", upd.NamespacedName.Name).
+					WithField("namespace", upd.NamespacedName.Namespace).
+					WithField("resource", upd.Resource).
+					Error("unable to retrieve object for updating")
 				continue
 			}
 

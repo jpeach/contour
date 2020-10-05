@@ -15,6 +15,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -196,11 +197,8 @@ func doServe(log logrus.FieldLogger, ctx *serveContext) error {
 	// Validate that Contour CRDs have been updated to v1.
 	validateCRDs(clients.DynamicClient(), log)
 
-	// Factory for cluster-wide informers.
-	clusterInformerFactory := clients.NewInformerFactory()
-
-	// Factories for per-namespace informers.
-	namespacedInformerFactories := map[string]k8s.InformerFactory{}
+	// informerNamespaces is a list of namespaces that we should start informers for
+	var informerNamespaces []string
 
 	// Validate fallback certificate parameters.
 	fallbackCert, err := ctx.fallbackCertificate()
@@ -215,21 +213,17 @@ func doServe(log logrus.FieldLogger, ctx *serveContext) error {
 	}
 
 	if rootNamespaces := ctx.proxyRootNamespaces(); len(rootNamespaces) > 0 {
+		informerNamespaces = append(informerNamespaces, rootNamespaces...)
+
 		// Add the FallbackCertificateNamespace to the root-namespaces if not already
-		if !contains(rootNamespaces, ctx.TLSConfig.FallbackCertificate.Namespace) && fallbackCert != nil {
-			rootNamespaces = append(rootNamespaces, ctx.FallbackCertificate.Namespace)
+		if !contains(informerNamespaces, ctx.TLSConfig.FallbackCertificate.Namespace) && fallbackCert != nil {
+			informerNamespaces = append(informerNamespaces, ctx.FallbackCertificate.Namespace)
 			log.WithField("context", "fallback-certificate").Infof("fallback certificate namespace %q not defined in 'root-namespaces', adding namespace to watch", ctx.FallbackCertificate.Namespace)
 		}
 
-		if !contains(rootNamespaces, ctx.TLSConfig.ClientCertificate.Namespace) && clientCert != nil {
-			rootNamespaces = append(rootNamespaces, ctx.ClientCertificate.Namespace)
+		if !contains(informerNamespaces, ctx.TLSConfig.ClientCertificate.Namespace) && clientCert != nil {
+			informerNamespaces = append(informerNamespaces, ctx.ClientCertificate.Namespace)
 			log.WithField("context", "envoy-client-certificate").Infof("client certificate namespace %q not defined in 'root-namespaces', adding namespace to watch", ctx.ClientCertificate.Namespace)
-		}
-
-		for _, ns := range rootNamespaces {
-			if _, ok := namespacedInformerFactories[ns]; !ok {
-				namespacedInformerFactories[ns] = clients.NewInformerFactoryForNamespace(ns)
-			}
 		}
 	}
 
@@ -374,50 +368,80 @@ func doServe(log logrus.FieldLogger, ctx *serveContext) error {
 		Logger:    log.WithField("context", "dynamicHandler"),
 	}
 
-	// Register our resource event handler with the k8s informers,
-	// using the SyncList to keep track of what to sync later.
-	var informerSyncList k8s.InformerSyncList
+	// Inform on DefaultResources.
+	for _, r := range k8s.DefaultResources() {
+		inf, err := clients.InformerForResource(r)
+		if err != nil {
+			log.WithError(err).WithField("resource", r).Fatal("failed to create informer")
+		}
 
-	// Inform on DefaultResources
-	informerSyncList.InformOnResources(clusterInformerFactory, dynamicHandler, k8s.DefaultResources()...)
+		inf.AddEventHandler(dynamicHandler)
+	}
 
+	// Inform on service-apis types if they are present.
 	if ctx.UseExperimentalServiceAPITypes {
-		// Check if the resource exists in the API server before setting up the informer.
-		if !clients.ResourcesExist(k8s.ServiceAPIResources()...) {
-			log.WithField("InformOnResources", "ExperimentalServiceAPITypes").Warnf("resources %v not found in api server", k8s.ServiceAPIResources())
-		} else {
-			informerSyncList.InformOnResources(clusterInformerFactory, dynamicHandler, k8s.ServiceAPIResources()...)
+		for _, r := range k8s.ServiceAPIResources() {
+			if !clients.ResourcesExist(r) {
+				log.WithField("resource", r).Warn("resource type not present on API server")
+				continue
+			}
+			inf, err := clients.InformerForResource(r)
+			if err != nil {
+				log.WithError(err).WithField("resource", r).Fatal("failed to create informer")
+			}
+
+			inf.AddEventHandler(dynamicHandler)
 		}
 	}
 
-	// TODO(youngnick): Move this logic out to internal/k8s/informers.go somehow.
-	// Add informers for each root namespace
-	for _, factory := range namespacedInformerFactories {
-		informerSyncList.InformOnResources(factory, dynamicHandler, k8s.SecretsResources()...)
+	// Inform on secrets, filtering by root namespaces.
+	for _, r := range k8s.SecretsResources() {
+		inf, err := clients.InformerForResource(r)
+		if err != nil {
+			log.WithError(err).WithField("resource", r).Fatal("failed to create informer")
+		}
+
+		if len(informerNamespaces) == 0 {
+			inf.AddEventHandler(dynamicHandler)
+		} else {
+			inf.AddEventHandler(k8s.NewNamespaceFilter(informerNamespaces, dynamicHandler))
+		}
 	}
 
-	// If root namespaces are not defined, then add the informer for all namespaces
-	if len(namespacedInformerFactories) == 0 {
-		informerSyncList.InformOnResources(clusterInformerFactory, dynamicHandler, k8s.SecretsResources()...)
-	}
+	// Inform on endpoints.
+	for _, r := range k8s.EndpointsResources() {
+		inf, err := clients.InformerForResource(r)
+		if err != nil {
+			log.WithError(err).WithField("resource", r).Fatal("failed to create informer")
+		}
 
-	informerSyncList.InformOnResources(clusterInformerFactory,
-		&k8s.DynamicClientHandler{
+		inf.AddEventHandler(&k8s.DynamicClientHandler{
 			Next: &contour.EventRecorder{
 				Next:    endpointHandler,
 				Counter: contourMetrics.EventHandlerOperations,
 			},
 			Converter: converter,
 			Logger:    log.WithField("context", "endpointstranslator"),
-		}, k8s.EndpointsResources()...)
+		})
+	}
 
 	// Set up workgroup runner and register informers.
 	var g workgroup.Group
-	g.Add(startInformer(clusterInformerFactory, log.WithField("context", "contourinformers")))
 
-	for ns, factory := range namespacedInformerFactories {
-		g.Add(startInformer(factory, log.WithField("context", "corenamespacedinformers").WithField("namespace", ns)))
-	}
+	// Register a task to start all the informers.
+	g.Add(func(stop <-chan struct{}) error {
+		log := log.WithField("context", "informers")
+
+		log.Info("starting informers")
+		defer log.Println("stopped informers")
+
+		if err := clients.StartInformers(stop); err != nil {
+			log.WithError(err).Error("failed to start informers")
+		}
+
+		<-stop
+		return nil
+	})
 
 	// Register our event handler with the workgroup.
 	g.Add(eventHandler.Start())
@@ -478,11 +502,10 @@ func doServe(log logrus.FieldLogger, ctx *serveContext) error {
 	}
 
 	sh := k8s.StatusUpdateHandler{
-		Log:             log.WithField("context", "StatusUpdateHandler"),
-		Clients:         clients,
-		LeaderElected:   eventHandler.IsLeader,
-		Converter:       converter,
-		InformerFactory: clusterInformerFactory,
+		Log:           log.WithField("context", "StatusUpdateHandler"),
+		Clients:       clients,
+		LeaderElected: eventHandler.IsLeader,
+		Converter:     converter,
 	}
 	g.Add(sh.Start)
 
@@ -503,7 +526,10 @@ func doServe(log logrus.FieldLogger, ctx *serveContext) error {
 	g.Add(lbsw.Start)
 
 	// Register an informer to watch envoy's service if we haven't been given static details.
-	if ctx.IngressStatusAddress == "" {
+	if ctx.IngressStatusAddress != "" {
+		log.WithField("loadbalancer-address", ctx.IngressStatusAddress).Info("Using supplied information for Ingress status")
+		lbsw.lbStatus <- parseStatusFlag(ctx.IngressStatusAddress)
+	} else {
 		dynamicServiceHandler := &k8s.DynamicClientHandler{
 			Next: &k8s.ServiceStatusLoadBalancerWatcher{
 				ServiceName: ctx.EnvoyServiceName,
@@ -513,24 +539,31 @@ func doServe(log logrus.FieldLogger, ctx *serveContext) error {
 			Converter: converter,
 			Logger:    log.WithField("context", "serviceStatusLoadBalancerWatcher"),
 		}
-		factory := clients.NewInformerFactoryForNamespace(ctx.EnvoyServiceNamespace)
-		informerSyncList.InformOnResources(factory, dynamicServiceHandler, k8s.ServicesResources()...)
 
-		g.Add(startInformer(factory, log.WithField("context", "serviceStatusLoadBalancerWatcher")))
+		for _, r := range k8s.ServicesResources() {
+			inf, err := clients.InformerForResource(r)
+			if err != nil {
+				log.WithError(err).WithField("resource", r).Fatal("failed to create informer")
+			}
+
+			if ctx.EnvoyServiceNamespace == "" {
+				inf.AddEventHandler(dynamicServiceHandler)
+			} else {
+				inf.AddEventHandler(k8s.NewNamespaceFilter([]string{ctx.EnvoyServiceNamespace}, dynamicServiceHandler))
+			}
+		}
+
 		log.WithField("envoy-service-name", ctx.EnvoyServiceName).
 			WithField("envoy-service-namespace", ctx.EnvoyServiceNamespace).
 			Info("Watching Service for Ingress status")
-	} else {
-		log.WithField("loadbalancer-address", ctx.IngressStatusAddress).Info("Using supplied information for Ingress status")
-		lbsw.lbStatus <- parseStatusFlag(ctx.IngressStatusAddress)
 	}
 
 	g.Add(func(stop <-chan struct{}) error {
 		log := log.WithField("context", "xds")
 
 		log.Printf("waiting for informer caches to sync")
-		if err := informerSyncList.WaitForSync(stop); err != nil {
-			return err
+		if !clients.WaitForCacheSync(stop) {
+			return errors.New("informer cache failed to synx")
 		}
 		log.Printf("informer caches synced")
 
@@ -602,16 +635,6 @@ func contains(namespaces []string, ns string) bool {
 		}
 	}
 	return false
-}
-
-func startInformer(inf k8s.InformerFactory, log logrus.FieldLogger) func(stop <-chan struct{}) error {
-	return func(stop <-chan struct{}) error {
-		log.Println("started informer")
-		defer log.Println("stopped informer")
-		inf.Start(stop)
-		<-stop
-		return nil
-	}
 }
 
 // getRequestTimeout gets the request timeout setting from ctx.TimeoutConfig.RequestTimeout
